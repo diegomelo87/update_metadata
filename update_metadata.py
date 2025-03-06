@@ -1,21 +1,15 @@
-"""
-Script to update customer metadata in PostgreSQL database.
-This script identifies customers without specific metadata and updates their records.
-"""
-
 import psycopg2
 from psycopg2 import Error
 import time
-import uuid
 
 def connect_to_database(schema="public"):
     try:
         # Establish database connection
         connection = psycopg2.connect(
-            host="localhost",        # Server address
-            database="node", # Database name
-            user="postgres",     # Database username
-            password="123456"  # Database password
+            host="***",     # Server address
+            database="***", # Database name
+            user="***",     # Database username
+            password="***"  # Database password
         )
 
         # Create a cursor to perform database operations
@@ -83,36 +77,49 @@ def get_customers_without_metadata(cursor, schema="public"):
 
 def insert_customer_metadata(cursor, connection, customers, schema="public", metadata_uuid='e1b93a8e-ccdc-4a37-b1fd-68ac47f2a956'):
     """
-    Insert metadata for each customer
+    Insert metadata for each customer, skipping duplicates
     """
-    try:
-        current_timestamp = int(time.time())
-        
-        insert_query = f"""
-        INSERT INTO {schema}.customer_metadata 
-        (customer_uuid, metadata_uuid, value, created_at)
-        VALUES (%s, %s, %s, %s)
-        """
-        
-        for customer in customers:
-            customer_uuid = customer[0]  # First column from the select (uuid)
-            identifier = customer[1]     # Second column from the select (identifier)
+    current_timestamp = int(time.time())
+    
+    insert_query = f"""
+    INSERT INTO {schema}.customer_metadata 
+    (customer_uuid, metadata_uuid, value, created_at)
+    VALUES (%s, %s, %s, %s)
+    """
+    
+    successful_inserts = 0
+    skipped_records = []
+    
+    for customer in customers:
+        try:
+            customer_uuid = customer[0]
+            identifier = customer[1]
             
-            # Execute insert for each customer
             cursor.execute(insert_query, (
                 customer_uuid,
                 metadata_uuid,
                 identifier,
                 current_timestamp
             ))
-        
-        # Commit the transaction
-        connection.commit()
-        print(f"Successfully inserted metadata for {len(customers)} customers")
-        
-    except (Exception, Error) as error:
-        print("Error inserting customer metadata:", error)
-        connection.rollback()
+            connection.commit()
+            successful_inserts += 1
+            
+        except psycopg2.IntegrityError as e:
+            # Register duplicate key cases
+            connection.rollback()
+            skipped_records.append((customer_uuid, identifier))
+            print(f"Duplicate key skipped - UUID: {customer_uuid}, Identifier: {identifier}")
+            continue
+            
+        except Exception as e:
+            connection.rollback()
+            print(f"Error inserting record - UUID: {customer_uuid}, Identifier: {identifier}")
+            print(f"Error: {str(e)}")
+            continue
+    
+    print(f"Processing completed:")
+    print(f"- Records successfully inserted: {successful_inserts}")
+    print(f"- Records skipped (duplicates): {len(skipped_records)}")
 
 def main():
     # Define the schema to be used
